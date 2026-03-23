@@ -1,4 +1,4 @@
-# Volumetric Morphology — urban form map
+# Volumetric Morphology: urban form map
 
 Static MapLibre + Three.js demo. Live site: **https://artemnktn.github.io/vol/**
 

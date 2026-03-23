@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Volumetric Morphology: Mapping Spatial Political Economy of Urban Form</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Roboto+Mono:ital,wght@0,400;0,500;0,600;0,700;1,400&display=swap"
+      rel="stylesheet"
+    />
+    <link
+      rel="stylesheet"
+      href="https://unpkg.com/maplibre-gl@5.3.0/dist/maplibre-gl.css"
+    />
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <div class="map-shell">
+      <header class="map-header">
+        <div class="map-header__title-row">
+          <h1 class="map-title">
+            Volumetric Morphology: Mapping Spatial Political Economy of Urban Form
+          </h1>
+        </div>
+        <div class="map-toolbar" role="toolbar" aria-label="Map controls">
+          <button type="button" class="map-tool-btn" id="btn-planar" aria-pressed="true">
+            Planar
+          </button>
+          <button type="button" class="map-tool-btn" id="btn-vertical" aria-expanded="false">
+            Vertical
+          </button>
+          <button type="button" class="map-tool-btn" id="btn-three-dimensional" aria-pressed="false">
+            Three dimensional
+          </button>
+          <button type="button" class="map-tool-btn" id="btn-volumetric" aria-pressed="false">
+            Volumetric
+          </button>
+        </div>
+      </header>
+      <div
+        id="map"
+        class="map-fullscreen"
+        role="application"
+        aria-label="Volumetric Morphology urban form map"
+      ></div>
+    </div>
+
+    <div id="profile-panel" class="profile-panel" hidden>
+      <div class="profile-panel-header">
+        <span class="profile-panel-title">Vertical</span>
+        <button type="button" class="profile-panel-close" id="profile-close" aria-label="Close Vertical panel">
+          ×
+        </button>
+      </div>
+      <p class="profile-panel-stats" id="profile-stats"></p>
+      <div class="profile-canvas-wrap">
+        <canvas id="profile-canvas" aria-label="Vertical profile along track distance"></canvas>
+      </div>
+    </div>
+
+    <script src="https://unpkg.com/maplibre-gl@5.3.0/dist/maplibre-gl.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/proj4@2.11.0/dist/proj4.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.min.js"></script>
+    <script src="./script.js"></script>
+  </body>
+</html>

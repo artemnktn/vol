@@ -1,0 +1,223 @@
+:root {
+  --text: #1a1d24;
+  --toolbar-bg: rgba(255, 255, 255, 0.94);
+  --toolbar-border: #c8ccd4;
+  /** Lime only for active toolbar mode */
+  --toolbar-active-bg: #d0ff00;
+  --toolbar-active-border: #9ad600;
+  --toolbar-active-text: #141a00;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  font-family: "Roboto Mono", ui-monospace, "Courier New", monospace;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  color: var(--text);
+  background: #dcdde0;
+}
+
+body {
+  font-family: inherit;
+}
+
+button,
+input,
+textarea,
+select {
+  font-family: inherit;
+}
+
+.map-shell {
+  position: fixed;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+/** Full-width header: title row + segmented mode row (screenshot-style) */
+.map-header {
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  background: #fff;
+  border: 1px solid #000;
+  z-index: 3;
+}
+
+.map-header__title-row {
+  text-align: center;
+  padding: 12px 16px;
+  border-bottom: 1px solid #000;
+}
+
+.map-title {
+  margin: 0 auto;
+  max-width: 72rem;
+  font-size: clamp(11px, 1.85vw, 15px);
+  font-weight: 700;
+  line-height: 1.35;
+  letter-spacing: -0.02em;
+  color: #000;
+}
+
+.map-toolbar {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  width: 100%;
+  align-items: stretch;
+}
+
+.map-fullscreen {
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+  position: relative;
+}
+
+.map-tool-btn {
+  appearance: none;
+  margin: 0;
+  border: none;
+  border-radius: 0;
+  box-shadow: none;
+  background: #fff;
+  color: #000;
+  font: inherit;
+  font-size: clamp(11px, 1.6vw, 13px);
+  font-weight: 600;
+  padding: 12px 14px;
+  text-align: left;
+  cursor: pointer;
+  border-right: 1px solid #000;
+  transition: background 0.12s ease, color 0.12s ease;
+}
+
+.map-tool-btn:last-child {
+  border-right: none;
+}
+
+.map-tool-btn:hover:not(:disabled) {
+  background: #f4f4f4;
+}
+
+.map-tool-btn:focus-visible {
+  outline: 2px solid #5a6fd4;
+  outline-offset: -2px;
+  z-index: 1;
+}
+
+.map-tool-btn--on {
+  background: var(--toolbar-active-bg);
+  color: var(--toolbar-active-text);
+}
+
+.map-tool-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+/* Bottom elevation profile panel */
+.profile-panel {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 20;
+  max-height: min(42vh, 320px);
+  background: rgba(255, 255, 255, 0.97);
+  border-top: 1px solid #c8ccd4;
+  box-shadow: 0 -10px 40px rgba(0, 0, 0, 0.12);
+  display: flex;
+  flex-direction: column;
+  padding-bottom: env(safe-area-inset-bottom, 0);
+}
+
+.profile-panel[hidden] {
+  display: none !important;
+}
+
+.profile-panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 12px 6px;
+  flex-shrink: 0;
+}
+
+.profile-panel-title {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text);
+}
+
+.profile-panel-close {
+  appearance: none;
+  border: none;
+  background: transparent;
+  font-size: 22px;
+  line-height: 1;
+  padding: 4px 10px;
+  cursor: pointer;
+  color: #555;
+  border-radius: 8px;
+}
+
+.profile-panel-close:hover {
+  background: #eee;
+}
+
+.profile-panel-stats {
+  margin: 0 12px 6px;
+  font-size: 12px;
+  color: #555;
+  flex-shrink: 0;
+}
+
+.profile-canvas-wrap {
+  flex: 1;
+  min-height: 140px;
+  padding: 0 8px 8px;
+}
+
+#profile-canvas {
+  display: block;
+  width: 100%;
+  height: 160px;
+}
+
+/* MapLibre controls — top-right inside map pane */
+.map-shell .maplibregl-ctrl-top-right {
+  top: 10px;
+}
+
+/* MapLibre UI — match app font */
+.maplibregl-ctrl,
+.maplibregl-popup,
+.maplibregl-popup-content {
+  font-family: "Roboto Mono", ui-monospace, "Courier New", monospace !important;
+}
+
+@media (max-width: 520px) {
+  .map-header__title-row {
+    padding: 10px 10px;
+  }
+
+  .map-tool-btn {
+    padding: 10px 8px;
+    font-size: 11px;
+  }
+}

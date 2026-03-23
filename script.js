@@ -1048,6 +1048,8 @@ async function init() {
     maxPitch: 78,
     antialias: true,
     canvasContextAttributes: { antialias: true },
+    /** Default control is on; we add AttributionControl below — avoid duplicate bars */
+    attributionControl: false,
   });
 
   map.addControl(

@@ -1,7 +1,3 @@
-# Volumetric Morphology: urban form map
+## GPS track testing for Vollumetric Morphology
+Static MapLibre + Three.js demo. 
 
-Static MapLibre + Three.js demo. Live site: **https://artemnktn.github.io/vol/**
-
-## GitHub Pages
-
-In the repo **Settings → Pages**: set **Source** to **Deploy from a branch**, branch **main**, folder **/ (root)**.

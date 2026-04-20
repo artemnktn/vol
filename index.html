@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Volumetric Morphology: Mapping Spatial Political Economy of Urban Form</title>
+    <title>Volumetric Economic Morphologies: Mapping Political Economy of Urban Form</title>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
@@ -19,24 +19,75 @@
   <body>
     <div class="map-shell">
       <header class="map-header">
-        <div class="map-header__title-row">
-          <h1 class="map-title">
-            Volumetric Morphology: Mapping Spatial Political Economy of Urban Form
-          </h1>
-        </div>
         <div class="map-toolbar" role="toolbar" aria-label="Map controls">
-          <button type="button" class="map-tool-btn" id="btn-planar" aria-pressed="true">
-            Planar
-          </button>
-          <button type="button" class="map-tool-btn" id="btn-vertical" aria-expanded="false">
-            Vertical
-          </button>
-          <button type="button" class="map-tool-btn" id="btn-three-dimensional" aria-pressed="false">
-            Three dimensional
-          </button>
-          <button type="button" class="map-tool-btn" id="btn-volumetric" aria-pressed="false">
-            Volumetric
-          </button>
+          <div class="map-tool-item">
+            <button type="button" class="map-tool-btn" id="btn-planar" aria-pressed="true" aria-expanded="false">
+              Planar (a)
+            </button>
+            <button type="button" class="map-tool-info-btn" id="btn-info-planar" aria-label="Planar info">
+              i
+            </button>
+          </div>
+          <div class="map-tool-item">
+            <button type="button" class="map-tool-btn" id="btn-vertical" aria-expanded="false">
+              Vertical (b)
+            </button>
+            <button type="button" class="map-tool-info-btn" id="btn-info-vertical" aria-label="Vertical info">
+              i
+            </button>
+          </div>
+          <div class="map-tool-item">
+            <button type="button" class="map-tool-btn" id="btn-three-dimensional" aria-pressed="false">
+              Three dimensional (c)
+            </button>
+            <button type="button" class="map-tool-info-btn" id="btn-info-three-dimensional" aria-label="Three dimensional info">
+              i
+            </button>
+          </div>
+          <div class="map-tool-item">
+            <button type="button" class="map-tool-btn" id="btn-volumetric" aria-pressed="false">
+              Volumetric (d)
+            </button>
+            <button type="button" class="map-tool-info-btn" id="btn-info-volumetric" aria-label="Volumetric info">
+              i
+            </button>
+          </div>
+        </div>
+        <div id="planar-panel" class="planar-panel" hidden>
+          <p class="planar-panel-coords" id="planar-coords">
+            x (longitude): --<br />
+            y (latitude): --
+          </p>
+          <div class="planar-chart-wrap">
+            <canvas id="planar-xy-chart" aria-label="Planar X Y chart"></canvas>
+          </div>
+        </div>
+        <div id="three-dimensional-panel" class="three-dimensional-panel" hidden>
+          <p class="three-dimensional-panel-coords">
+            x (longitude)<br />
+            y (latitude)<br />
+            z (height / elevation)<br />
+            t (time)
+          </p>
+          <div class="three-dimensional-chart-wrap">
+            <canvas id="three-dimensional-cube-chart" aria-label="Three dimensional XYZ cube chart"></canvas>
+          </div>
+        </div>
+        <div id="volumetric-panel" class="volumetric-panel" hidden>
+          <p class="volumetric-panel-coords">
+            x (longitude)<br />
+            y (latitude)<br />
+            z (height / elevation)<br />
+            t (time)<br />
+            v (value)<br />
+            a (access)<br />
+            o (owenrship)<br />
+            g (governance)<br />
+            e (experience)
+          </p>
+          <div class="volumetric-chart-wrap">
+            <canvas id="volumetric-cube-chart" aria-label="Volumetric dense cube chart"></canvas>
+          </div>
         </div>
       </header>
       <div

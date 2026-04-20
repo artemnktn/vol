@@ -75,6 +75,16 @@ let volumetricOn = false;
 
 /** @type {number | null} */
 let volumetricAnimRafId = null;
+/** @type {number | null} */
+let trackTravelAnimRafId = null;
+/** @type {maplibregl.Marker | null} */
+let trackTravelMarker = null;
+/** @type {maplibregl.Marker | null} */
+let trackTravelTimeMarker = null;
+/** @type {HTMLDivElement | null} */
+let trackTravelTimeEl = null;
+
+const TRACK_TRAVEL_LOOP_SEC = 18;
 
 function ensureVolProj4() {
   if (typeof proj4 === "undefined") {
@@ -213,12 +223,12 @@ function steamVolFeatureCollection(fc, tSec) {
     const col = p.vol_color || "#9aa0a8";
     const phase = Number(p.vol_pulse_phase) || 0;
 
-    const coreOp = 0.2 + 0.14 * Math.sin(tSec * 4.8 + phase);
+    const coreOp = 0.34 + 0.2 * Math.sin(tSec * 4.8 + phase);
     out.push({
       type: "Feature",
       properties: {
-        vol_color: mixHexToWhite(col, 0.12),
-        vol_radius: Math.max(2.5, baseR * 0.48),
+        vol_color: mixHexToWhite(col, 0.08),
+        vol_radius: Math.max(3.6, baseR * 0.68),
         vol_pulse_opacity: coreOp,
       },
       geometry: { type: "Point", coordinates: [lng, lat] },
@@ -238,11 +248,11 @@ function steamVolFeatureCollection(fc, tSec) {
       const fade = Math.pow(1 - u, 1.35);
       const puff = Math.sin(u * Math.PI);
       const r = Math.max(
-        2,
-        baseR * (0.38 + 0.42 * (1 - u) * (0.85 + 0.35 * puff)),
+        3,
+        baseR * (0.52 + 0.56 * (1 - u) * (0.9 + 0.35 * puff)),
       );
-      const whiteness = 0.22 + 0.58 * u;
-      const op = fade * (0.5 + 0.48 * (1 - u)) * (0.72 + 0.28 * puff);
+      const whiteness = 0.14 + 0.46 * u;
+      const op = fade * (0.72 + 0.52 * (1 - u)) * (0.84 + 0.32 * puff);
 
       out.push({
         type: "Feature",
@@ -343,6 +353,125 @@ function geojsonLineBbox(geojson) {
     return [114.16, 22.3, 114.19, 22.32];
   }
   return [minLng, minLat, maxLng, maxLat];
+}
+
+/** Start/end points from first and last line coordinates in LineString/MultiLineString GeoJSON */
+function buildTrackEndpointsGeoJSON(geojson) {
+  let start = null;
+  let end = null;
+
+  function applyLine(coords) {
+    if (!Array.isArray(coords) || coords.length === 0) return;
+    const first = coords[0];
+    const last = coords[coords.length - 1];
+    if (!start && Array.isArray(first) && first.length >= 2) {
+      start = [first[0], first[1]];
+    }
+    if (Array.isArray(last) && last.length >= 2) {
+      end = [last[0], last[1]];
+    }
+  }
+
+  for (const f of geojson.features || []) {
+    const g = f?.geometry;
+    if (!g) continue;
+    if (g.type === "LineString") {
+      applyLine(g.coordinates);
+    } else if (g.type === "MultiLineString") {
+      for (const line of g.coordinates || []) {
+        applyLine(line);
+      }
+    }
+  }
+
+  const features = [];
+  if (start) {
+    features.push({
+      type: "Feature",
+      geometry: { type: "Point", coordinates: start },
+      properties: { marker: "1" },
+    });
+  }
+  if (end) {
+    features.push({
+      type: "Feature",
+      geometry: { type: "Point", coordinates: end },
+      properties: { marker: "2" },
+    });
+  }
+  return { type: "FeatureCollection", features };
+}
+
+/** Render start/end endpoint labels as HTML markers (always above map layers). */
+function addTrackEndpointMarkers(map, endpointsFc) {
+  for (const f of endpointsFc.features || []) {
+    const coords = f?.geometry?.coordinates;
+    const markerText = String(f?.properties?.marker || "");
+    if (!Array.isArray(coords) || coords.length < 2 || !markerText) continue;
+
+    const el = document.createElement("div");
+    el.className = "track-endpoint-label";
+    el.textContent = markerText;
+
+    new maplibregl.Marker({
+      element: el,
+      anchor: "center",
+    })
+      .setLngLat([coords[0], coords[1]])
+      .addTo(map);
+  }
+}
+
+function getTrackStartTimeMs(geojson) {
+  for (const f of geojson.features || []) {
+    const iso = f?.properties?.time_created;
+    if (!iso) continue;
+    const ms = Date.parse(iso);
+    if (Number.isFinite(ms)) return ms;
+  }
+  return null;
+}
+
+function formatHmsFromMs(ms) {
+  if (!Number.isFinite(ms)) return "--:--:--";
+  const d = new Date(ms);
+  const hh = String(d.getHours()).padStart(2, "0");
+  const mm = String(d.getMinutes()).padStart(2, "0");
+  const ss = String(d.getSeconds()).padStart(2, "0");
+  return `${hh}:${mm}:${ss}`;
+}
+
+function formatDataTimeLabel(ms) {
+  if (!Number.isFinite(ms)) return "--";
+  const iso = new Date(ms).toISOString();
+  return `${iso.slice(0, 10)} ${iso.slice(11, 19)} UTC`;
+}
+
+/** Flatten LineString/MultiLineString into ordered samples with optional Z */
+function buildTrackPathSamples(geojson) {
+  const out = [];
+  function pushLine(coords) {
+    for (const p of coords || []) {
+      if (!Array.isArray(p) || p.length < 2) continue;
+      const lng = Number(p[0]);
+      const lat = Number(p[1]);
+      if (!Number.isFinite(lng) || !Number.isFinite(lat)) continue;
+      const z = p.length >= 3 && Number.isFinite(Number(p[2])) ? Number(p[2]) : null;
+      out.push({ lng, lat, z });
+    }
+  }
+  for (const f of geojson.features || []) {
+    const g = f?.geometry;
+    if (!g) continue;
+    if (g.type === "LineString") {
+      pushLine(g.coordinates);
+    } else if (g.type === "MultiLineString") {
+      for (const line of g.coordinates || []) {
+        pushLine(line);
+      }
+    }
+  }
+  return out;
 }
 
 function metersToLatDelta(m) {
@@ -811,6 +940,105 @@ function haversineMeters(lon1, lat1, lon2, lat2) {
   return 2 * R * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 }
 
+function stopTrackTravelAnimation() {
+  if (trackTravelAnimRafId !== null) {
+    cancelAnimationFrame(trackTravelAnimRafId);
+    trackTravelAnimRafId = null;
+  }
+  if (trackTravelMarker) {
+    trackTravelMarker.remove();
+    trackTravelMarker = null;
+  }
+  if (trackTravelTimeMarker) {
+    trackTravelTimeMarker.remove();
+    trackTravelTimeMarker = null;
+  }
+  trackTravelTimeEl = null;
+}
+
+function startTrackTravelAnimation(map, trackSamples, startTimeMs) {
+  stopTrackTravelAnimation();
+  if (!Array.isArray(trackSamples) || trackSamples.length < 2) return;
+
+  const cumulative = [0];
+  let total = 0;
+  for (let i = 1; i < trackSamples.length; i++) {
+    const a = trackSamples[i - 1];
+    const b = trackSamples[i];
+    total += haversineMeters(a.lng, a.lat, b.lng, b.lat);
+    cumulative.push(total);
+  }
+  if (total <= 0) return;
+
+  const el = document.createElement("div");
+  el.className = "track-travel-dot";
+  trackTravelMarker = new maplibregl.Marker({
+    element: el,
+    anchor: "center",
+  })
+    .setLngLat([trackSamples[0].lng, trackSamples[0].lat])
+    .addTo(map);
+
+  trackTravelTimeEl = document.createElement("div");
+  trackTravelTimeEl.className = "track-travel-time";
+  trackTravelTimeEl.textContent = "hight: --";
+  trackTravelTimeMarker = new maplibregl.Marker({
+    element: trackTravelTimeEl,
+    anchor: "bottom",
+    offset: [0, -14],
+  })
+    .setLngLat([trackSamples[0].lng, trackSamples[0].lat])
+    .addTo(map);
+
+  const t0 = performance.now();
+  function interpolateAtDistance(dMeters) {
+    for (let i = 1; i < cumulative.length; i++) {
+      if (dMeters <= cumulative[i]) {
+        const segStartD = cumulative[i - 1];
+        const segLen = cumulative[i] - segStartD;
+        const u = segLen > 0 ? (dMeters - segStartD) / segLen : 0;
+        const a = trackSamples[i - 1];
+        const b = trackSamples[i];
+        const z =
+          Number.isFinite(a.z) && Number.isFinite(b.z)
+            ? a.z + (b.z - a.z) * u
+            : Number.isFinite(a.z)
+              ? a.z
+              : Number.isFinite(b.z)
+                ? b.z
+                : NaN;
+        return {
+          lng: a.lng + (b.lng - a.lng) * u,
+          lat: a.lat + (b.lat - a.lat) * u,
+          z,
+        };
+      }
+    }
+    const last = trackSamples[trackSamples.length - 1];
+    return { lng: last.lng, lat: last.lat, z: Number(last.z) };
+  }
+
+  function frame(now) {
+    if (!view3d || !trackTravelMarker) {
+      stopTrackTravelAnimation();
+      return;
+    }
+    const elapsedSec = (now - t0) / 1000;
+    const loopFrac = (elapsedSec % TRACK_TRAVEL_LOOP_SEC) / TRACK_TRAVEL_LOOP_SEC;
+    const pos = interpolateAtDistance(loopFrac * total);
+    trackTravelMarker.setLngLat([pos.lng, pos.lat]);
+    if (trackTravelTimeMarker) {
+      trackTravelTimeMarker.setLngLat([pos.lng, pos.lat]);
+    }
+    if (trackTravelTimeEl) {
+      const zLabel = Number.isFinite(pos.z) ? `${pos.z.toFixed(1)} m` : "--";
+      trackTravelTimeEl.textContent = `hight: ${zLabel}`;
+    }
+    trackTravelAnimRafId = requestAnimationFrame(frame);
+  }
+  trackTravelAnimRafId = requestAnimationFrame(frame);
+}
+
 /**
  * @returns {{ d: number, z: number }[] | null}
  */
@@ -882,7 +1110,7 @@ function elevationGainM(series) {
   return g;
 }
 
-function drawElevationProfile(series) {
+function drawElevationProfile(series, hoverIndex = null) {
   const canvas = document.getElementById("profile-canvas");
   const statsEl = document.getElementById("profile-stats");
   if (!canvas || !statsEl) return;
@@ -893,18 +1121,18 @@ function drawElevationProfile(series) {
     if (ctx) {
       const w = canvas.parentElement?.clientWidth || 300;
       canvas.width = w;
-      canvas.height = 120;
-      ctx.clearRect(0, 0, w, 120);
+      canvas.height = 180;
+      ctx.clearRect(0, 0, w, 180);
       ctx.fillStyle = "#666";
       ctx.font = "600 13px 'Roboto Mono', ui-monospace, monospace";
-      ctx.fillText("No profile to draw.", 16, 64);
+      ctx.fillText("No profile to draw.", 16, 92);
     }
     return;
   }
 
   const wrap = canvas.parentElement;
   const w = Math.max(280, wrap?.clientWidth || 300);
-  const h = 168;
+  const h = Math.max(220, (wrap?.clientHeight || 260) - 4);
   const dpr = window.devicePixelRatio || 1;
   canvas.width = Math.floor(w * dpr);
   canvas.height = Math.floor(h * dpr);
@@ -970,23 +1198,54 @@ function drawElevationProfile(series) {
   ctx.fillText(`${Math.round(maxD)} m`, padL + cw, h - 10);
 
   const gain = elevationGainM(series);
-  statsEl.textContent = `Distance ${Math.round(maxD)} m · elevation ${Math.round(
+  let statsText = `Distance ${Math.round(maxD)} m · elevation ${Math.round(
     Math.min(...series.map((p) => p.z)),
   )}–${Math.round(Math.max(...series.map((p) => p.z)))} m · climb ~${Math.round(gain)} m`;
+
+  if (
+    Number.isInteger(hoverIndex) &&
+    hoverIndex >= 0 &&
+    hoverIndex < series.length
+  ) {
+    const hp = series[hoverIndex];
+    const hx = toX(hp.d);
+    const hy = toY(hp.z);
+
+    ctx.strokeStyle = "rgba(0, 0, 0, 0.28)";
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(hx, padT);
+    ctx.lineTo(hx, padT + ch);
+    ctx.stroke();
+
+    ctx.beginPath();
+    ctx.arc(hx, hy, 3.6, 0, Math.PI * 2);
+    ctx.fillStyle = TRACK_COLOR;
+    ctx.fill();
+    ctx.strokeStyle = "#617600";
+    ctx.lineWidth = 1;
+    ctx.stroke();
+
+    statsText += ` · cursor distanse=${Math.round(hp.d)} m · cursor elevation=${hp.z.toFixed(1)} m`;
+  }
+
+  statsEl.textContent = statsText;
 }
 
 function setupElevationProfileUI(trackGeojson) {
   const panel = document.getElementById("profile-panel");
   const btn = document.getElementById("btn-vertical");
   const closeBtn = document.getElementById("profile-close");
+  const canvas = document.getElementById("profile-canvas");
   const series = buildProfileSeriesFromGeoJson(trackGeojson);
+  let hoverIndex = null;
 
   function openPanel() {
     if (!panel || !btn) return;
     panel.hidden = false;
     btn.setAttribute("aria-expanded", "true");
     btn.classList.add("map-tool-btn--on");
-    requestAnimationFrame(() => drawElevationProfile(series));
+    requestAnimationFrame(() => drawElevationProfile(series, hoverIndex));
   }
 
   function closePanel() {
@@ -994,25 +1253,707 @@ function setupElevationProfileUI(trackGeojson) {
     panel.hidden = true;
     btn.setAttribute("aria-expanded", "false");
     btn.classList.remove("map-tool-btn--on");
+    hoverIndex = null;
   }
 
-  if (btn) {
-    btn.addEventListener("click", () => {
+  closeBtn?.addEventListener("click", closePanel);
+
+  canvas?.addEventListener("mousemove", (e) => {
+    if (!panel || panel.hidden || !series || series.length < 2) return;
+    const rect = canvas.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const w = Math.max(280, canvas.parentElement?.clientWidth || 300);
+    const padL = 50;
+    const padR = 14;
+    const cw = Math.max(10, w - padL - padR);
+    const maxD = series[series.length - 1].d;
+    if (maxD <= 0) return;
+    const clampedX = Math.max(padL, Math.min(padL + cw, x));
+    const dAtCursor = ((clampedX - padL) / cw) * maxD;
+    let nearest = 0;
+    let best = Infinity;
+    for (let i = 0; i < series.length; i++) {
+      const diff = Math.abs(series[i].d - dAtCursor);
+      if (diff < best) {
+        best = diff;
+        nearest = i;
+      }
+    }
+    hoverIndex = nearest;
+    drawElevationProfile(series, hoverIndex);
+  });
+
+  canvas?.addEventListener("mouseleave", () => {
+    if (!panel || panel.hidden) return;
+    hoverIndex = null;
+    drawElevationProfile(series, null);
+  });
+
+  window.addEventListener("resize", () => {
+    if (panel && !panel.hidden) {
+      drawElevationProfile(series, hoverIndex);
+    }
+  });
+
+  return {
+    openPanel,
+    closePanel,
+    togglePanel() {
       if (panel?.hidden) {
         openPanel();
       } else {
         closePanel();
       }
-    });
+    },
+  };
+}
+
+function setupPlanarPanelUI(map) {
+  const panel = document.getElementById("planar-panel");
+  const btn = document.getElementById("btn-planar");
+  const coordsEl = document.getElementById("planar-coords");
+  const chartCanvas = document.getElementById("planar-xy-chart");
+  const xyHistory = [];
+  const XY_HISTORY_MAX = 120;
+
+  function formatCoords(lng, lat) {
+    return `x (longitude): ${lng.toFixed(6)}\ny (latitude): ${lat.toFixed(6)}`;
   }
 
-  closeBtn?.addEventListener("click", closePanel);
+  function drawXyChart() {
+    if (!chartCanvas) return;
+    const rect = chartCanvas.getBoundingClientRect();
+    const w = Math.max(120, Math.floor(rect.width));
+    const h = Math.max(90, Math.floor(rect.height));
+    const dpr = window.devicePixelRatio || 1;
+
+    chartCanvas.width = Math.floor(w * dpr);
+    chartCanvas.height = Math.floor(h * dpr);
+    const ctx = chartCanvas.getContext("2d");
+    if (!ctx) return;
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.clearRect(0, 0, w, h);
+
+    const plotPad = { l: 26, r: 10, t: 8, b: 18 };
+    const pw = Math.max(10, w - plotPad.l - plotPad.r);
+    const ph = Math.max(10, h - plotPad.t - plotPad.b);
+    const origin = { x: plotPad.l, y: plotPad.t + ph };
+    const axisXEnd = { x: plotPad.l + pw, y: origin.y };
+    const axisYEnd = { x: origin.x, y: plotPad.t };
+
+    function drawArrow(from, to) {
+      const dx = to.x - from.x;
+      const dy = to.y - from.y;
+      const len = Math.hypot(dx, dy) || 1;
+      const ux = dx / len;
+      const uy = dy / len;
+      const px = -uy;
+      const py = ux;
+      const ah = 10;
+      const aw = 5.5;
+
+      ctx.strokeStyle = "#000";
+      ctx.lineWidth = 1.6;
+      ctx.beginPath();
+      ctx.moveTo(from.x, from.y);
+      ctx.lineTo(to.x, to.y);
+      ctx.stroke();
+
+      // Line-arrow head (no filled triangle)
+      ctx.beginPath();
+      ctx.moveTo(to.x, to.y);
+      ctx.lineTo(to.x - ux * ah + px * aw, to.y - uy * ah + py * aw);
+      ctx.moveTo(to.x, to.y);
+      ctx.lineTo(to.x - ux * ah - px * aw, to.y - uy * ah - py * aw);
+      ctx.stroke();
+    }
+
+    // Light gray grid between axes.
+    const gridSteps = 8;
+    ctx.strokeStyle = "rgba(0, 0, 0, 0.16)";
+    ctx.lineWidth = 0.8;
+    for (let i = 1; i < gridSteps; i++) {
+      const x = origin.x + (pw * i) / gridSteps;
+      ctx.beginPath();
+      ctx.moveTo(x, origin.y);
+      ctx.lineTo(x, axisYEnd.y);
+      ctx.stroke();
+    }
+    for (let i = 1; i < gridSteps; i++) {
+      const y = origin.y - (ph * i) / gridSteps;
+      ctx.beginPath();
+      ctx.moveTo(origin.x, y);
+      ctx.lineTo(axisXEnd.x, y);
+      ctx.stroke();
+    }
+
+    drawArrow(origin, axisXEnd);
+    drawArrow(origin, axisYEnd);
+
+    if (xyHistory.length < 2) {
+      ctx.fillStyle = "#5f6d1a";
+      ctx.font = "500 11px 'Roboto Mono', ui-monospace, monospace";
+      ctx.fillText("Move cursor on map", origin.x + 8, plotPad.t + ph / 2);
+      ctx.fillStyle = "#51600f";
+      ctx.fillText("x", axisXEnd.x + 2, axisXEnd.y + 4);
+      ctx.fillText("y", axisYEnd.x + 2, axisYEnd.y - 2);
+      return;
+    }
+
+    let minX = Infinity;
+    let maxX = -Infinity;
+    let minY = Infinity;
+    let maxY = -Infinity;
+    for (const p of xyHistory) {
+      if (p.x < minX) minX = p.x;
+      if (p.x > maxX) maxX = p.x;
+      if (p.y < minY) minY = p.y;
+      if (p.y > maxY) maxY = p.y;
+    }
+    const dx = Math.max(1e-9, maxX - minX);
+    const dy = Math.max(1e-9, maxY - minY);
+    const xPad = dx * 0.08;
+    const yPad = dy * 0.08;
+    minX -= xPad;
+    maxX += xPad;
+    minY -= yPad;
+    maxY += yPad;
+
+    const toPxX = (x) => plotPad.l + ((x - minX) / (maxX - minX || 1)) * pw;
+    const toPxY = (y) => plotPad.t + ph - ((y - minY) / (maxY - minY || 1)) * ph;
+
+    ctx.beginPath();
+    ctx.moveTo(toPxX(xyHistory[0].x), toPxY(xyHistory[0].y));
+    for (let i = 1; i < xyHistory.length; i++) {
+      ctx.lineTo(toPxX(xyHistory[i].x), toPxY(xyHistory[i].y));
+    }
+    ctx.strokeStyle = "#d0ff00";
+    ctx.lineWidth = 1.8;
+    ctx.stroke();
+
+    const last = xyHistory[xyHistory.length - 1];
+    ctx.beginPath();
+    ctx.arc(toPxX(last.x), toPxY(last.y), 3.2, 0, Math.PI * 2);
+    ctx.fillStyle = "#d0ff00";
+    ctx.fill();
+    ctx.strokeStyle = "#7da800";
+    ctx.lineWidth = 1;
+    ctx.stroke();
+
+    ctx.fillStyle = "#51600f";
+    ctx.font = "500 10px 'Roboto Mono', ui-monospace, monospace";
+    ctx.fillText("x", axisXEnd.x + 2, axisXEnd.y + 4);
+    ctx.fillText("y", axisYEnd.x + 2, axisYEnd.y - 2);
+  }
+
+  function pushSample(lng, lat) {
+    if (!Number.isFinite(lng) || !Number.isFinite(lat)) return;
+    xyHistory.push({ x: lng, y: lat });
+    if (xyHistory.length > XY_HISTORY_MAX) {
+      xyHistory.splice(0, xyHistory.length - XY_HISTORY_MAX);
+    }
+    drawXyChart();
+  }
+
+  function setCoords(lng, lat) {
+    if (!coordsEl || !Number.isFinite(lng) || !Number.isFinite(lat)) return;
+    coordsEl.textContent = formatCoords(lng, lat);
+  }
+
+  function openPanel() {
+    if (!panel || !btn) return;
+    panel.hidden = false;
+    btn.setAttribute("aria-expanded", "true");
+    const c = map.getCenter();
+    setCoords(c.lng, c.lat);
+    xyHistory.length = 0;
+    pushSample(c.lng, c.lat);
+  }
+
+  function closePanel() {
+    if (!panel || !btn) return;
+    panel.hidden = true;
+    btn.setAttribute("aria-expanded", "false");
+  }
+
+  map.on("mousemove", (e) => {
+    if (panel?.hidden) return;
+    setCoords(e.lngLat.lng, e.lngLat.lat);
+    pushSample(e.lngLat.lng, e.lngLat.lat);
+  });
+
+  map.on("moveend", () => {
+    if (panel?.hidden) return;
+    const c = map.getCenter();
+    setCoords(c.lng, c.lat);
+    pushSample(c.lng, c.lat);
+  });
 
   window.addEventListener("resize", () => {
-    if (panel && !panel.hidden) {
-      drawElevationProfile(series);
-    }
+    if (panel?.hidden) return;
+    drawXyChart();
   });
+
+  return {
+    isOpen() {
+      return !!panel && !panel.hidden;
+    },
+    openPanel,
+    closePanel,
+    togglePanel() {
+      if (panel?.hidden) {
+        openPanel();
+      } else {
+        closePanel();
+      }
+    },
+  };
+}
+
+function setupThreeDimensionalPanelUI() {
+  const panel = document.getElementById("three-dimensional-panel");
+  const btn = document.getElementById("btn-three-dimensional");
+  const cubeCanvas = document.getElementById("three-dimensional-cube-chart");
+  let cubeAngle = 0;
+  let cubeTilt = 0.45;
+  let isDragging = false;
+  let dragStartX = 0;
+  let dragStartY = 0;
+
+  const CUBE_VERTICES = [
+    [-1, -1, -1],
+    [1, -1, -1],
+    [1, 1, -1],
+    [-1, 1, -1],
+    [-1, -1, 1],
+    [1, -1, 1],
+    [1, 1, 1],
+    [-1, 1, 1],
+  ];
+  const CUBE_EDGES = [
+    [0, 1], [1, 2], [2, 3], [3, 0],
+    [4, 5], [5, 6], [6, 7], [7, 4],
+    [0, 4], [1, 5], [2, 6], [3, 7],
+  ];
+
+  function drawCubeFrame() {
+    if (!cubeCanvas || panel?.hidden) return;
+    const rect = cubeCanvas.getBoundingClientRect();
+    const w = Math.max(120, Math.floor(rect.width));
+    const h = Math.max(90, Math.floor(rect.height));
+    const dpr = window.devicePixelRatio || 1;
+    cubeCanvas.width = Math.floor(w * dpr);
+    cubeCanvas.height = Math.floor(h * dpr);
+    const ctx = cubeCanvas.getContext("2d");
+    if (!ctx) return;
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.clearRect(0, 0, w, h);
+
+    const pad = { l: 8, r: 8, t: 8, b: 8 };
+    const iw = Math.max(10, w - pad.l - pad.r);
+    const ih = Math.max(10, h - pad.t - pad.b);
+    const cx = pad.l + iw / 2;
+    const cy = pad.t + ih / 2;
+    const s = Math.min(iw, ih) * 0.52;
+
+    const projected = CUBE_VERTICES.map(([x, y, z]) => {
+      const ay = cubeAngle;
+      const ax = cubeTilt;
+      const cosy = Math.cos(ay);
+      const siny = Math.sin(ay);
+      const cosx = Math.cos(ax);
+      const sinx = Math.sin(ax);
+
+      const x1 = x * cosy + z * siny;
+      const z1 = -x * siny + z * cosy;
+      const y1 = y * cosx - z1 * sinx;
+      const z2 = y * sinx + z1 * cosx;
+
+      const depth = 4.2 + z2;
+      const px = cx + (x1 * s * 3.2) / depth;
+      const py = cy + (y1 * s * 3.2) / depth;
+      return { x: px, y: py };
+    });
+
+    ctx.strokeStyle = "#d0ff00";
+    ctx.lineWidth = 1.8;
+    for (const [a, b] of CUBE_EDGES) {
+      ctx.beginPath();
+      ctx.moveTo(projected[a].x, projected[a].y);
+      ctx.lineTo(projected[b].x, projected[b].y);
+      ctx.stroke();
+    }
+
+    const axisOrigin = { x: cx, y: pad.t + ih * 0.76 };
+    const axisY = { x: axisOrigin.x, y: axisOrigin.y - ih * 0.56 };
+    const axisX = { x: axisOrigin.x + iw * 0.24, y: axisOrigin.y + ih * 0.25 };
+    const axisZ = { x: axisOrigin.x - iw * 0.24, y: axisOrigin.y + ih * 0.25 };
+
+    function drawAxisArrow(from, to, color) {
+      const dx = to.x - from.x;
+      const dy = to.y - from.y;
+      const len = Math.hypot(dx, dy) || 1;
+      const ux = dx / len;
+      const uy = dy / len;
+      const px = -uy;
+      const py = ux;
+      const ah = 10;
+      const aw = 5.5;
+
+      ctx.strokeStyle = color;
+      ctx.lineWidth = 1.6;
+      ctx.beginPath();
+      ctx.moveTo(from.x, from.y);
+      ctx.lineTo(to.x, to.y);
+      ctx.stroke();
+
+      // Line-arrow head (no filled triangle)
+      ctx.beginPath();
+      ctx.moveTo(to.x, to.y);
+      ctx.lineTo(to.x - ux * ah + px * aw, to.y - uy * ah + py * aw);
+      ctx.moveTo(to.x, to.y);
+      ctx.lineTo(to.x - ux * ah - px * aw, to.y - uy * ah - py * aw);
+      ctx.stroke();
+    }
+
+    const axisColor = "#000";
+    drawAxisArrow(axisOrigin, axisX, axisColor);
+    drawAxisArrow(axisOrigin, axisY, axisColor);
+    drawAxisArrow(axisOrigin, axisZ, axisColor);
+
+    ctx.fillStyle = "#51600f";
+    ctx.font = "500 10px 'Roboto Mono', ui-monospace, monospace";
+    ctx.fillText("x", axisX.x + 2, axisX.y + 1);
+    ctx.fillText("y", axisY.x - 8, axisY.y - 1);
+    ctx.fillText("z", axisZ.x - 10, axisZ.y + 1);
+  }
+
+  function handlePointerDown(e) {
+    if (panel?.hidden) return;
+    isDragging = true;
+    dragStartX = e.clientX;
+    dragStartY = e.clientY;
+  }
+
+  function handlePointerMove(e) {
+    if (!isDragging) return;
+    const dx = e.clientX - dragStartX;
+    const dy = e.clientY - dragStartY;
+    dragStartX = e.clientX;
+    dragStartY = e.clientY;
+    cubeAngle += dx * 0.01;
+    cubeTilt = Math.max(-1.2, Math.min(1.2, cubeTilt + dy * 0.01));
+    drawCubeFrame();
+  }
+
+  function handlePointerUp() {
+    isDragging = false;
+  }
+
+  function handleWheel(e) {
+    if (panel?.hidden) return;
+    e.preventDefault();
+    cubeAngle += e.deltaY * 0.005;
+    drawCubeFrame();
+  }
+
+  function openPanel() {
+    if (!panel || !btn) return;
+    panel.hidden = false;
+    drawCubeFrame();
+  }
+
+  function closePanel() {
+    if (!panel || !btn) return;
+    panel.hidden = true;
+  }
+
+  cubeCanvas?.addEventListener("pointerdown", handlePointerDown);
+  window.addEventListener("pointermove", handlePointerMove);
+  window.addEventListener("pointerup", handlePointerUp);
+  cubeCanvas?.addEventListener("wheel", handleWheel, { passive: false });
+
+  window.addEventListener("resize", () => {
+    if (panel?.hidden) return;
+    drawCubeFrame();
+  });
+
+  return {
+    openPanel,
+    closePanel,
+    togglePanel() {
+      if (panel?.hidden) {
+        openPanel();
+      } else {
+        closePanel();
+      }
+    },
+  };
+}
+
+function setupVolumetricPanelUI() {
+  const panel = document.getElementById("volumetric-panel");
+  const btn = document.getElementById("btn-volumetric");
+  const cubeCanvas = document.getElementById("volumetric-cube-chart");
+  let cubeAngle = 0.2;
+  let cubeTilt = 0.52;
+  let isDragging = false;
+  let dragStartX = 0;
+  let dragStartY = 0;
+
+  const CUBE_VERTICES = [
+    [-1, -1, -1],
+    [1, -1, -1],
+    [1, 1, -1],
+    [-1, 1, -1],
+    [-1, -1, 1],
+    [1, -1, 1],
+    [1, 1, 1],
+    [-1, 1, 1],
+  ];
+  const CUBE_EDGES = [
+    [0, 1], [1, 2], [2, 3], [3, 0],
+    [4, 5], [5, 6], [6, 7], [7, 4],
+    [0, 4], [1, 5], [2, 6], [3, 7],
+  ];
+
+  function drawCubeFrame() {
+    if (!cubeCanvas || panel?.hidden) return;
+    const rect = cubeCanvas.getBoundingClientRect();
+    const w = Math.max(120, Math.floor(rect.width));
+    const h = Math.max(90, Math.floor(rect.height));
+    const dpr = window.devicePixelRatio || 1;
+    cubeCanvas.width = Math.floor(w * dpr);
+    cubeCanvas.height = Math.floor(h * dpr);
+    const ctx = cubeCanvas.getContext("2d");
+    if (!ctx) return;
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.clearRect(0, 0, w, h);
+
+    const pad = { l: 8, r: 8, t: 8, b: 8 };
+    const iw = Math.max(10, w - pad.l - pad.r);
+    const ih = Math.max(10, h - pad.t - pad.b);
+    const cx = pad.l + iw / 2;
+    const cy = pad.t + ih / 2;
+    const s = Math.min(iw, ih) * 0.48;
+
+    function projectPoint(x, y, z) {
+      const ay = cubeAngle;
+      const ax = cubeTilt;
+      const cosy = Math.cos(ay);
+      const siny = Math.sin(ay);
+      const cosx = Math.cos(ax);
+      const sinx = Math.sin(ax);
+
+      const x1 = x * cosy + z * siny;
+      const z1 = -x * siny + z * cosy;
+      const y1 = y * cosx - z1 * sinx;
+      const z2 = y * sinx + z1 * cosx;
+
+      const depth = 4.3 + z2;
+      return {
+        x: cx + (x1 * s * 3.2) / depth,
+        y: cy + (y1 * s * 3.2) / depth,
+      };
+    }
+
+    function drawSegment(a, b, color, width) {
+      ctx.strokeStyle = color;
+      ctx.lineWidth = width;
+      ctx.beginPath();
+      ctx.moveTo(a.x, a.y);
+      ctx.lineTo(b.x, b.y);
+      ctx.stroke();
+    }
+
+    function drawFace(indices, fill, stroke = null) {
+      ctx.beginPath();
+      ctx.moveTo(projectedVertices[indices[0]].x, projectedVertices[indices[0]].y);
+      for (let i = 1; i < indices.length; i++) {
+        ctx.lineTo(projectedVertices[indices[i]].x, projectedVertices[indices[i]].y);
+      }
+      ctx.closePath();
+      ctx.fillStyle = fill;
+      ctx.fill();
+      if (stroke) {
+        ctx.strokeStyle = stroke;
+        ctx.lineWidth = 1;
+        ctx.stroke();
+      }
+    }
+
+    const projectedVertices = CUBE_VERTICES.map(([x, y, z]) => projectPoint(x, y, z));
+
+    // Multiple internal orthogonal slices (no outer cube shell).
+    function drawPlaneX(xv, fill, stroke) {
+      const pts = [
+        projectPoint(xv, -1, -1),
+        projectPoint(xv, 1, -1),
+        projectPoint(xv, 1, 1),
+        projectPoint(xv, -1, 1),
+      ];
+      ctx.beginPath();
+      ctx.moveTo(pts[0].x, pts[0].y);
+      for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i].x, pts[i].y);
+      ctx.closePath();
+      ctx.fillStyle = fill;
+      ctx.fill();
+      ctx.strokeStyle = stroke;
+      ctx.lineWidth = 0.8;
+      ctx.stroke();
+    }
+
+    function drawPlaneY(yv, fill, stroke) {
+      const pts = [
+        projectPoint(-1, yv, -1),
+        projectPoint(1, yv, -1),
+        projectPoint(1, yv, 1),
+        projectPoint(-1, yv, 1),
+      ];
+      ctx.beginPath();
+      ctx.moveTo(pts[0].x, pts[0].y);
+      for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i].x, pts[i].y);
+      ctx.closePath();
+      ctx.fillStyle = fill;
+      ctx.fill();
+      ctx.strokeStyle = stroke;
+      ctx.lineWidth = 0.8;
+      ctx.stroke();
+    }
+
+    function drawPlaneZ(zv, fill, stroke) {
+      const pts = [
+        projectPoint(-1, -1, zv),
+        projectPoint(1, -1, zv),
+        projectPoint(1, 1, zv),
+        projectPoint(-1, 1, zv),
+      ];
+      ctx.beginPath();
+      ctx.moveTo(pts[0].x, pts[0].y);
+      for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i].x, pts[i].y);
+      ctx.closePath();
+      ctx.fillStyle = fill;
+      ctx.fill();
+      ctx.strokeStyle = stroke;
+      ctx.lineWidth = 0.8;
+      ctx.stroke();
+    }
+
+    const sliceLevels = [-0.66, -0.33, 0, 0.33, 0.66];
+    for (const x of sliceLevels) {
+      drawPlaneX(x, "rgba(95, 240, 120, 0.13)", "rgba(0, 0, 0, 0.2)");
+    }
+    for (const y of sliceLevels) {
+      drawPlaneY(y, "rgba(255, 220, 130, 0.13)", "rgba(0, 0, 0, 0.2)");
+    }
+    for (const z of sliceLevels) {
+      drawPlaneZ(z, "rgba(90, 220, 255, 0.13)", "rgba(0, 0, 0, 0.2)");
+    }
+
+    const axisOrigin = { x: cx, y: pad.t + ih * 0.76 };
+    const axisY = { x: axisOrigin.x, y: axisOrigin.y - ih * 0.56 };
+    const axisX = { x: axisOrigin.x + iw * 0.24, y: axisOrigin.y + ih * 0.25 };
+    const axisZ = { x: axisOrigin.x - iw * 0.24, y: axisOrigin.y + ih * 0.25 };
+
+    function drawAxisArrow(from, to, color) {
+      const dx = to.x - from.x;
+      const dy = to.y - from.y;
+      const len = Math.hypot(dx, dy) || 1;
+      const ux = dx / len;
+      const uy = dy / len;
+      const px = -uy;
+      const py = ux;
+      const ah = 10;
+      const aw = 5.5;
+
+      ctx.strokeStyle = color;
+      ctx.lineWidth = 1.6;
+      ctx.beginPath();
+      ctx.moveTo(from.x, from.y);
+      ctx.lineTo(to.x, to.y);
+      ctx.stroke();
+
+      ctx.beginPath();
+      ctx.moveTo(to.x, to.y);
+      ctx.lineTo(to.x - ux * ah + px * aw, to.y - uy * ah + py * aw);
+      ctx.moveTo(to.x, to.y);
+      ctx.lineTo(to.x - ux * ah - px * aw, to.y - uy * ah - py * aw);
+      ctx.stroke();
+    }
+
+    const axisColor = "#000";
+    drawAxisArrow(axisOrigin, axisX, axisColor);
+    drawAxisArrow(axisOrigin, axisY, axisColor);
+    drawAxisArrow(axisOrigin, axisZ, axisColor);
+
+    ctx.fillStyle = "#51600f";
+    ctx.font = "500 10px 'Roboto Mono', ui-monospace, monospace";
+    ctx.fillText("x", axisX.x + 2, axisX.y + 1);
+    ctx.fillText("y", axisY.x - 8, axisY.y - 1);
+    ctx.fillText("z", axisZ.x - 10, axisZ.y + 1);
+  }
+
+  function handlePointerDown(e) {
+    if (panel?.hidden) return;
+    isDragging = true;
+    dragStartX = e.clientX;
+    dragStartY = e.clientY;
+  }
+
+  function handlePointerMove(e) {
+    if (!isDragging) return;
+    const dx = e.clientX - dragStartX;
+    const dy = e.clientY - dragStartY;
+    dragStartX = e.clientX;
+    dragStartY = e.clientY;
+    cubeAngle += dx * 0.01;
+    cubeTilt = Math.max(-1.2, Math.min(1.2, cubeTilt + dy * 0.01));
+    drawCubeFrame();
+  }
+
+  function handlePointerUp() {
+    isDragging = false;
+  }
+
+  function handleWheel(e) {
+    if (panel?.hidden) return;
+    e.preventDefault();
+    cubeAngle += e.deltaY * 0.005;
+    drawCubeFrame();
+  }
+
+  function openPanel() {
+    if (!panel || !btn) return;
+    panel.hidden = false;
+    drawCubeFrame();
+  }
+
+  function closePanel() {
+    if (!panel || !btn) return;
+    panel.hidden = true;
+  }
+
+  cubeCanvas?.addEventListener("pointerdown", handlePointerDown);
+  window.addEventListener("pointermove", handlePointerMove);
+  window.addEventListener("pointerup", handlePointerUp);
+  cubeCanvas?.addEventListener("wheel", handleWheel, { passive: false });
+
+  window.addEventListener("resize", () => {
+    if (panel?.hidden) return;
+    drawCubeFrame();
+  });
+
+  return {
+    openPanel,
+    closePanel,
+    togglePanel() {
+      if (panel?.hidden) {
+        openPanel();
+      } else {
+        closePanel();
+      }
+    },
+  };
 }
 
 async function init() {
@@ -1036,7 +1977,7 @@ async function init() {
 
   const volumetricPointsSnapshot = JSON.parse(JSON.stringify(volPointsData));
 
-  setupElevationProfileUI(trackData);
+  const verticalProfilePanel = setupElevationProfileUI(trackData);
 
   const map = new maplibregl.Map({
     container: "map",
@@ -1063,7 +2004,23 @@ async function init() {
 
   map.on("load", () => {
     const btnPlanar = document.getElementById("btn-planar");
+    const btnVertical = document.getElementById("btn-vertical");
     const btnThreeDimensional = document.getElementById("btn-three-dimensional");
+    const btnVol = document.getElementById("btn-volumetric");
+    const btnInfoPlanar = document.getElementById("btn-info-planar");
+    const btnInfoVertical = document.getElementById("btn-info-vertical");
+    const btnInfoThreeDimensional = document.getElementById("btn-info-three-dimensional");
+    const btnInfoVolumetric = document.getElementById("btn-info-volumetric");
+    const planarPanel = setupPlanarPanelUI(map);
+    const threeDimensionalPanel = setupThreeDimensionalPanelUI();
+    const volumetricPanel = setupVolumetricPanelUI();
+
+    function closeAllInfoPanels() {
+      planarPanel?.closePanel();
+      threeDimensionalPanel?.closePanel();
+      volumetricPanel?.closePanel();
+      verticalProfilePanel?.closePanel();
+    }
 
     tuneGrayBasemap(map);
     ensureBuilding3dLayer(map);
@@ -1155,7 +2112,7 @@ async function init() {
       },
       paint: {
         "line-color": "#ffffff",
-        "line-width": 7,
+        "line-width": 10,
         "line-opacity": TRACK_OUTLINE_OPACITY,
       },
     });
@@ -1170,10 +2127,15 @@ async function init() {
       },
       paint: {
         "line-color": TRACK_COLOR,
-        "line-width": 5,
+        "line-width": 8,
         "line-opacity": TRACK_LINE_OPACITY,
       },
     });
+
+    const trackEndpoints = buildTrackEndpointsGeoJSON(trackData);
+    addTrackEndpointMarkers(map, trackEndpoints);
+    const trackPathSamples = buildTrackPathSamples(trackData);
+    const trackStartTimeMs = getTrackStartTimeMs(trackData);
 
     if (volPointsData.features.length > 0) {
       map.addSource(SOURCE_VOL_POINTS, {
@@ -1192,7 +2154,7 @@ async function init() {
           "circle-color": ["get", "vol_color"],
           "circle-opacity": [
             "*",
-            0.92,
+            1,
             ["coalesce", ["get", "vol_pulse_opacity"], 1],
           ],
           "circle-stroke-width": 0,
@@ -1213,20 +2175,25 @@ async function init() {
     if (btnPlanar && btnThreeDimensional) {
       syncViewModeButtons(btnPlanar, btnThreeDimensional);
       btnPlanar.addEventListener("click", () => {
-        if (!view3d) return;
-        view3d = false;
-        syncViewModeButtons(btnPlanar, btnThreeDimensional);
-        applyBuildingsForViewMode(map);
-        map.easeTo({
-          pitch: 0,
-          bearing: 0,
-          duration: 900,
-          essential: true,
-        });
+        closeAllInfoPanels();
+        if (view3d) {
+          view3d = false;
+          stopTrackTravelAnimation();
+          syncViewModeButtons(btnPlanar, btnThreeDimensional);
+          applyBuildingsForViewMode(map);
+          map.easeTo({
+            pitch: 0,
+            bearing: 0,
+            duration: 900,
+            essential: true,
+          });
+        }
       });
       btnThreeDimensional.addEventListener("click", () => {
+        closeAllInfoPanels();
         if (view3d) return;
         view3d = true;
+        startTrackTravelAnimation(map, trackPathSamples, trackStartTimeMs);
         syncViewModeButtons(btnPlanar, btnThreeDimensional);
         applyBuildingsForViewMode(map);
         map.easeTo({
@@ -1238,7 +2205,39 @@ async function init() {
       });
     }
 
-    const btnVol = document.getElementById("btn-volumetric");
+    btnVertical?.addEventListener("click", () => {
+      closeAllInfoPanels();
+    });
+
+    btnInfoPlanar?.addEventListener("click", (e) => {
+      e.stopPropagation();
+      threeDimensionalPanel?.closePanel();
+      volumetricPanel?.closePanel();
+      verticalProfilePanel?.closePanel();
+      planarPanel?.togglePanel();
+    });
+    btnInfoVertical?.addEventListener("click", (e) => {
+      e.stopPropagation();
+      planarPanel?.closePanel();
+      threeDimensionalPanel?.closePanel();
+      volumetricPanel?.closePanel();
+      verticalProfilePanel?.togglePanel();
+    });
+    btnInfoThreeDimensional?.addEventListener("click", (e) => {
+      e.stopPropagation();
+      planarPanel?.closePanel();
+      volumetricPanel?.closePanel();
+      verticalProfilePanel?.closePanel();
+      threeDimensionalPanel?.togglePanel();
+    });
+    btnInfoVolumetric?.addEventListener("click", (e) => {
+      e.stopPropagation();
+      planarPanel?.closePanel();
+      threeDimensionalPanel?.closePanel();
+      verticalProfilePanel?.closePanel();
+      volumetricPanel?.togglePanel();
+    });
+
     if (btnVol) {
       if (volPointsData.features.length === 0) {
         btnVol.disabled = true;
@@ -1255,8 +2254,10 @@ async function init() {
             volumetricOn ? "visible" : "none",
           );
           if (volumetricOn) {
+            closeAllInfoPanels();
             if (btnPlanar && btnThreeDimensional && !view3d) {
               view3d = true;
+              startTrackTravelAnimation(map, trackPathSamples, trackStartTimeMs);
               syncViewModeButtons(btnPlanar, btnThreeDimensional);
               applyBuildingsForViewMode(map);
               map.easeTo({
@@ -1267,6 +2268,9 @@ async function init() {
                 essential: true,
               });
             } else {
+              if (view3d) {
+                startTrackTravelAnimation(map, trackPathSamples, trackStartTimeMs);
+              }
               map.easeTo({
                 center: trackCenter,
                 duration: 900,

@@ -49,6 +49,7 @@ select {
 
 /** Full-width header: title row + segmented mode row (screenshot-style) */
 .map-header {
+  position: relative;
   flex-shrink: 0;
   display: flex;
   flex-direction: column;
@@ -81,6 +82,15 @@ select {
   align-items: stretch;
 }
 
+.map-tool-item {
+  position: relative;
+  border-right: 1px solid #000;
+}
+
+.map-tool-item:last-child {
+  border-right: none;
+}
+
 .map-fullscreen {
   flex: 1;
   min-height: 0;
@@ -102,12 +112,10 @@ select {
   padding: 12px 14px;
   text-align: left;
   cursor: pointer;
-  border-right: 1px solid #000;
-  transition: background 0.12s ease, color 0.12s ease;
-}
-
-.map-tool-btn:last-child {
   border-right: none;
+  width: 100%;
+  padding-right: 34px;
+  transition: background 0.12s ease, color 0.12s ease;
 }
 
 .map-tool-btn:hover:not(:disabled) {
@@ -130,6 +138,28 @@ select {
   cursor: not-allowed;
 }
 
+.map-tool-info-btn {
+  position: absolute;
+  top: 50%;
+  right: 8px;
+  transform: translateY(-50%);
+  width: 18px;
+  height: 18px;
+  border: 1px solid #000;
+  border-radius: 999px;
+  background: #fff;
+  color: #000;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1;
+  padding: 0;
+  cursor: pointer;
+}
+
+.map-tool-info-btn:hover {
+  background: #efefef;
+}
+
 /* Bottom elevation profile panel */
 .profile-panel {
   position: fixed;
@@ -137,7 +167,8 @@ select {
   right: 0;
   bottom: 0;
   z-index: 20;
-  max-height: min(42vh, 320px);
+  height: 50vh;
+  max-height: 50vh;
   background: rgba(255, 255, 255, 0.97);
   border-top: 1px solid #c8ccd4;
   box-shadow: 0 -10px 40px rgba(0, 0, 0, 0.12);
@@ -150,6 +181,127 @@ select {
   display: none !important;
 }
 
+.planar-panel {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  z-index: 6;
+  width: 25%;
+  min-width: 0;
+  border: 1px solid #000;
+  background: #fff;
+  padding: 12px 12px 18px;
+}
+
+.planar-panel[hidden] {
+  display: none !important;
+}
+
+.planar-panel-coords {
+  margin: 0 0 6px;
+  font-size: 13px;
+  line-height: 1.45;
+  white-space: pre-line;
+}
+
+.planar-chart-wrap {
+  width: 100%;
+  height: 170px;
+  border: none;
+  margin: 4px 0 10px;
+  background: #fff;
+}
+
+#planar-xy-chart {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.planar-panel-description {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.45;
+  color: #333;
+}
+
+.three-dimensional-panel {
+  position: absolute;
+  top: 100%;
+  left: 50%;
+  z-index: 6;
+  width: 25%;
+  min-width: 0;
+  border: 1px solid #000;
+  background: #fff;
+  padding: 10px 12px 12px;
+}
+
+.three-dimensional-panel[hidden] {
+  display: none !important;
+}
+
+.three-dimensional-panel-coords {
+  margin: 0 0 6px;
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.three-dimensional-chart-wrap {
+  width: 100%;
+  height: 180px;
+  margin: 0 0 8px;
+  background: #fff;
+}
+
+#three-dimensional-cube-chart {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.three-dimensional-panel-description {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.45;
+  color: #333;
+}
+
+.volumetric-panel {
+  position: absolute;
+  top: 100%;
+  left: 75%;
+  z-index: 6;
+  width: 25%;
+  min-width: 0;
+  border: 1px solid #000;
+  background: #fff;
+  padding: 10px 12px 12px;
+}
+
+.volumetric-panel[hidden] {
+  display: none !important;
+}
+
+.volumetric-panel-coords {
+  margin: 0 0 6px;
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.volumetric-chart-wrap {
+  width: 100%;
+  height: 180px;
+  margin: 0 0 8px;
+  background: #fff;
+}
+
+#volumetric-cube-chart {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
 .profile-panel-header {
   display: flex;
   align-items: center;
@@ -159,7 +311,7 @@ select {
 }
 
 .profile-panel-title {
-  font-size: 14px;
+  font-size: 20px;
   font-weight: 700;
   color: var(--text);
 }
@@ -182,21 +334,21 @@ select {
 
 .profile-panel-stats {
   margin: 0 12px 6px;
-  font-size: 12px;
+  font-size: 16px;
   color: #555;
   flex-shrink: 0;
 }
 
 .profile-canvas-wrap {
   flex: 1;
-  min-height: 140px;
-  padding: 0 8px 8px;
+  min-height: 0;
+  padding: 0 8px 4px;
 }
 
 #profile-canvas {
   display: block;
   width: 100%;
-  height: 160px;
+  height: 100%;
 }
 
 /* MapLibre controls — top-right inside map pane */
@@ -211,6 +363,48 @@ select {
   font-family: "Roboto Mono", ui-monospace, "Courier New", monospace !important;
 }
 
+.track-endpoint-label {
+  font-family: inherit;
+  font-size: calc(1em * 1.33);
+  font-weight: inherit;
+  line-height: 1;
+  width: 1.4em;
+  height: 1.4em;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  background: #d0ff00;
+  border: 1px solid #7da800;
+  color: #000;
+  user-select: none;
+  pointer-events: none;
+}
+
+.track-travel-dot {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: #d0ff00;
+  box-shadow:
+    0 0 10px 2px rgba(208, 255, 0, 0.75),
+    0 0 18px 6px rgba(208, 255, 0, 0.35);
+  filter: blur(0.4px);
+  pointer-events: none;
+}
+
+.track-travel-time {
+  padding: 4px 8px;
+  border: 1px solid #000;
+  background: rgba(255, 255, 255, 0.9);
+  color: #000;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.1;
+  white-space: pre-line;
+  pointer-events: none;
+}
+
 @media (max-width: 520px) {
   .map-header__title-row {
     padding: 10px 10px;
@@ -219,5 +413,19 @@ select {
   .map-tool-btn {
     padding: 10px 8px;
     font-size: 11px;
+  }
+
+  .planar-panel {
+    width: 50%;
+  }
+
+  .three-dimensional-panel {
+    left: 50%;
+    width: 50%;
+  }
+
+  .volumetric-panel {
+    left: 0;
+    width: 100%;
   }
 }

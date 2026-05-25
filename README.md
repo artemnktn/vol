@@ -1,3 +1,3 @@
-## GPS track testing for Vollumetric Morphology
+## GPS track testing
 Static MapLibre + Three.js demo. 
 
